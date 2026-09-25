@@ -1,11 +1,11 @@
 {
-  "name": "freebuff.com application",
-  "short_name": "freebuff.com",
-  "description": "freebuff.com application",
+  "name": "LUCKY HUB — Binary Inspector",
+  "short_name": "LUCKY HUB",
+  "description": "Inspect binary files in your browser: hex viewer, strings, ELF sections, CRC32, SHA-256 and entropy. 100% local.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "background_color": "#0f100c",
+  "theme_color": "#eab308",
   "icons": [
     {
       "src": "/logo.svg",

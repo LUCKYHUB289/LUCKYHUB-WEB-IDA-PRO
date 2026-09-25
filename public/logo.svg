@@ -1,1 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 96.81 96.81"><rect width="96.81" height="96.81" rx="18"/><g fill="#fff"><rect x="24.67" y="24.67" width="47.47" height="11.87"/><rect x="24.67" y="36.54" width="11.87" height="35.61"/><rect x="40.06" y="39.98" width="23.74" height="11.87"/><rect x="40.06" y="51.85" width="11.87" height="20.3"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 96.81 96.81">
+  <defs>
+    <linearGradient id="lh-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17140d"/>
+      <stop offset="1" stop-color="#090a08"/>
+    </linearGradient>
+    <linearGradient id="lh-fg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6e7a1"/>
+      <stop offset="0.45" stop-color="#eab308"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <rect width="96.81" height="96.81" rx="18" fill="url(#lh-bg)"/>
+  <rect x="0.75" y="0.75" width="95.31" height="95.31" rx="17.25" fill="none" stroke="#eab308" stroke-opacity="0.35" stroke-width="1.5"/>
+  <g fill="url(#lh-fg)">
+    <rect x="24.67" y="24.67" width="47.47" height="11.87" rx="2"/>
+    <rect x="24.67" y="36.54" width="11.87" height="35.61" rx="2"/>
+    <rect x="40.06" y="39.98" width="23.74" height="11.87" rx="2"/>
+    <rect x="40.06" y="51.85" width="11.87" height="20.3" rx="2"/>
+  </g>
+</svg>
