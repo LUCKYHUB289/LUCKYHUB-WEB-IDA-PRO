@@ -30,6 +30,10 @@ export interface ElfSection {
   offset: number;
   size: number;
   flags: string;
+  /** Section header link (e.g. the string table backing a symbol table). */
+  link: number;
+  /** Fixed entry size for table sections (SYMTAB/DYNSYM/RELA…). */
+  entsize: number;
 }
 
 export interface ElfProgram {
@@ -58,14 +62,21 @@ export interface PeSection {
   rawSize: number;
   rawOffset: number;
   entropy: number;
+  /** IMAGE_SECTION_HEADER Characteristics — bit 0x20000000 marks executable code. */
+  characteristics: number;
 }
 
 export interface PeInfo {
   valid: boolean;
+  bitness: 32 | 64 | null;
   machine: string;
   timestamp: number | null;
   subsystem: string;
+  entryPoint: number;
+  imageBase: number;
   sections: PeSection[];
+  /** Raw data directory table (export, import, resource …) as RVA/size pairs. */
+  dataDirectories: { rva: number; size: number }[];
 }
 
 export interface ChunkEntropy {
@@ -77,6 +88,36 @@ export interface HexRow {
   offset: number;
   hex: string[];
   ascii: string;
+}
+
+export interface ElfSymbol {
+  name: string;
+  value: number;
+  size: number;
+  bind: string;
+  type: string;
+  shndx: number;
+  kind: "symtab" | "dynsym";
+}
+
+export interface PeImport {
+  dll: string;
+  name: string;
+  ordinal: number | null;
+}
+
+export interface PeExport {
+  name: string;
+  ordinal: number;
+  rva: number;
+}
+
+export interface FunctionCandidate {
+  offset: number;
+  pattern: string;
+  arch: string;
+  /** True when the candidate is the image entry point rather than a guessed prologue. */
+  entry: boolean;
 }
 
 export interface AnalysisResult {
@@ -96,6 +137,10 @@ export interface AnalysisResult {
   pe: PeInfo;
   strings: StringHit[];
   indicators: IndicatorHit[];
+  symbols: ElfSymbol[];
+  imports: PeImport[];
+  exports: PeExport[];
+  functions: FunctionCandidate[];
   scanMs: number;
 }
 
@@ -330,6 +375,8 @@ export function parseElf(data: Uint8Array): ElfInfo {
             offset: sh_offset,
             size: sh_size,
             flags: shFlagsStr(sh_flags),
+            link: dv.getUint32(base + 40, le),
+            entsize: readU64(dv, base + 56, le),
           });
         } else {
           const sh_name = dv.getUint32(base, le);
@@ -342,6 +389,8 @@ export function parseElf(data: Uint8Array): ElfInfo {
             offset: dv.getUint32(base + 16, le),
             size: dv.getUint32(base + 20, le),
             flags: shFlagsStr(sh_flags),
+            link: dv.getUint32(base + 24, le),
+            entsize: dv.getUint32(base + 36, le),
           });
         }
       } catch {
@@ -363,7 +412,17 @@ const PE_MACHINES: Record<number, string> = {
 };
 
 function emptyPe(): PeInfo {
-  return { valid: false, machine: "—", timestamp: null, subsystem: "—", sections: [] };
+  return {
+    valid: false,
+    bitness: null,
+    machine: "—",
+    timestamp: null,
+    subsystem: "—",
+    entryPoint: 0,
+    imageBase: 0,
+    sections: [],
+    dataDirectories: [],
+  };
 }
 
 export function parsePe(data: Uint8Array): PeInfo {
@@ -392,10 +451,27 @@ export function parsePe(data: Uint8Array): PeInfo {
   const optBase = e_lfanew + 24;
   if (optSize >= 68 && optBase + 68 <= data.length) {
     const magic = dv.getUint16(optBase, true);
-    const subOff = magic === 0x20b ? optBase + 68 : optBase + 68 - 16;
-    if (subOff + 2 <= data.length) {
-      const sub = dv.getUint16(subOff, true);
+    const is64 = magic === 0x20b;
+    info.bitness = is64 ? 64 : 32;
+
+    // AddressOfEntryPoint sits at optional-header offset 16 for both widths.
+    info.entryPoint = dv.getUint32(optBase + 16, true);
+    // ImageBase is 4 bytes at +28 (PE32) or 8 bytes at +24 (PE32+).
+    info.imageBase = is64 ? readU64(dv, optBase + 24, true) : dv.getUint32(optBase + 28, true);
+
+    // Subsystem is at optional-header offset 68 for both PE32 and PE32+.
+    if (optBase + 70 <= data.length) {
+      const sub = dv.getUint16(optBase + 68, true);
       info.subsystem = sub === 2 ? "Windows GUI" : sub === 3 ? "Console" : `0x${sub.toString(16)}`;
+    }
+
+    const dirOff = optBase + (is64 ? 112 : 96);
+    const numDirsOff = optBase + (is64 ? 108 : 92);
+    const numDirs = numDirsOff + 4 <= data.length ? dv.getUint32(numDirsOff, true) : 0;
+    for (let i = 0; i < Math.min(numDirs, 16); i++) {
+      const b = dirOff + i * 8;
+      if (b + 8 > data.length) break;
+      info.dataDirectories.push({ rva: dv.getUint32(b, true), size: dv.getUint32(b + 4, true) });
     }
   }
 
@@ -418,9 +494,281 @@ export function parsePe(data: Uint8Array): PeInfo {
       rawSize,
       rawOffset,
       entropy: entropyOf(data, rawOffset, rawOffset + rawSize),
+      characteristics: dv.getUint32(base + 36, true),
     });
   }
   return info;
+}
+
+/* ------------------------------------------------------------------ */
+/* PE RVA mapping + import / export tables                             */
+/* ------------------------------------------------------------------ */
+
+/** Translate an RVA into a file offset, or null when it is not file-backed. */
+export function rvaToOffset(pe: PeInfo, data: Uint8Array, rva: number): number | null {
+  if (!pe.valid) return null;
+  for (const s of pe.sections) {
+    const span = Math.max(s.rawSize, s.virtualSize);
+    if (rva >= s.virtualAddress && rva < s.virtualAddress + span) {
+      const off = s.rawOffset + (rva - s.virtualAddress);
+      return off >= 0 && off < data.length ? off : null;
+    }
+  }
+  return rva < data.length ? rva : null;
+}
+
+function readCString(data: Uint8Array, offset: number, max = 512): string {
+  if (offset < 0 || offset >= data.length) return "";
+  let end = offset;
+  const limit = Math.min(data.length, offset + max);
+  while (end < limit && data[end] !== 0) end++;
+  return new TextDecoder().decode(data.subarray(offset, end));
+}
+
+/** Walk the PE import directory, resolving each DLL and imported symbol. */
+export function parsePeImports(data: Uint8Array, pe: PeInfo): PeImport[] {
+  const out: PeImport[] = [];
+  if (!pe.valid) return out;
+  const dir = pe.dataDirectories[1];
+  if (!dir || dir.rva === 0) return out;
+  const descriptorBase = rvaToOffset(pe, data, dir.rva);
+  if (descriptorBase === null) return out;
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const is64 = pe.bitness === 64;
+  const thunk = is64 ? 8 : 4;
+
+  for (let d = 0; d < 512; d++) {
+    const base = descriptorBase + d * 20;
+    if (base + 20 > data.length) break;
+    const originalFirstThunk = dv.getUint32(base, true);
+    const nameRva = dv.getUint32(base + 12, true);
+    const firstThunk = dv.getUint32(base + 16, true);
+    if (originalFirstThunk === 0 && nameRva === 0 && firstThunk === 0) break;
+    const dllOff = rvaToOffset(pe, data, nameRva);
+    const dll = dllOff !== null ? readCString(data, dllOff, 260) : "?";
+    const thunkRva = originalFirstThunk || firstThunk;
+    const thunkOff = rvaToOffset(pe, data, thunkRva);
+    if (thunkOff === null) continue;
+    for (let t = 0; t < 4096; t++) {
+      const off = thunkOff + t * thunk;
+      if (off + thunk > data.length) break;
+      const lo = dv.getUint32(off, true);
+      const hi = is64 ? dv.getUint32(off + 4, true) : 0;
+      if (lo === 0 && hi === 0) break;
+      const byOrdinal = is64 ? (hi & 0x80000000) !== 0 : (lo & 0x80000000) !== 0;
+      if (byOrdinal) {
+        out.push({ dll, name: "", ordinal: lo & 0xffff });
+      } else {
+        const nbr = rvaToOffset(pe, data, lo);
+        if (nbr !== null && nbr + 2 < data.length) {
+          out.push({ dll, name: readCString(data, nbr + 2, 256), ordinal: null });
+        }
+      }
+      if (out.length >= 20000) return out;
+    }
+  }
+  return out;
+}
+
+/** Parse the named entries of a PE export directory. */
+export function parsePeExports(data: Uint8Array, pe: PeInfo): PeExport[] {
+  const out: PeExport[] = [];
+  if (!pe.valid) return out;
+  const dir = pe.dataDirectories[0];
+  if (!dir || dir.rva === 0) return out;
+  const base = rvaToOffset(pe, data, dir.rva);
+  if (base === null || base + 40 > data.length) return out;
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const numFuncs = dv.getUint32(base + 0x14, true);
+  const numNames = dv.getUint32(base + 0x18, true);
+  const addrFuncs = dv.getUint32(base + 0x1c, true);
+  const addrNames = dv.getUint32(base + 0x20, true);
+  const addrOrds = dv.getUint32(base + 0x24, true);
+  const funcsOff = rvaToOffset(pe, data, addrFuncs);
+  const namesOff = rvaToOffset(pe, data, addrNames);
+  const ordsOff = rvaToOffset(pe, data, addrOrds);
+  if (namesOff === null || ordsOff === null) return out;
+  const count = Math.min(numNames, 20000);
+  for (let i = 0; i < count; i++) {
+    if (namesOff + (i + 1) * 4 > data.length) break;
+    if (ordsOff + (i + 1) * 2 > data.length) break;
+    const nameRva = dv.getUint32(namesOff + i * 4, true);
+    const nameOff = rvaToOffset(pe, data, nameRva);
+    if (nameOff === null) continue;
+    const ordinal = dv.getUint16(ordsOff + i * 2, true);
+    let rva = 0;
+    if (funcsOff !== null && ordinal < numFuncs && funcsOff + (ordinal + 1) * 4 <= data.length) {
+      rva = dv.getUint32(funcsOff + ordinal * 4, true);
+    }
+    out.push({ name: readCString(data, nameOff, 256), ordinal, rva });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* ELF symbol tables                                                   */
+/* ------------------------------------------------------------------ */
+
+const SYM_BINDS = ["LOCAL", "GLOBAL", "WEAK"];
+const SYM_TYPES = ["NOTYPE", "OBJECT", "FUNC", "SECTION", "FILE", "COMMON", "TLS"];
+
+/** Extract .symtab and .dynsym entries, resolving names via the linked strtab. */
+export function parseElfSymbols(data: Uint8Array, elf: ElfInfo): ElfSymbol[] {
+  const out: ElfSymbol[] = [];
+  if (!elf.valid || elf.bitness === null) return out;
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const is64 = elf.bitness === 64;
+  const le = elf.endian === "little";
+
+  for (const sec of elf.sections) {
+    if (sec.type !== "SYMTAB" && sec.type !== "DYNSYM") continue;
+    const kind: ElfSymbol["kind"] = sec.type === "SYMTAB" ? "symtab" : "dynsym";
+    const entSize = sec.entsize || (is64 ? 24 : 16);
+    const strSec = elf.sections[sec.link];
+    if (!strSec || entSize <= 0) continue;
+    const strStart = strSec.offset;
+    const strEnd = Math.min(data.length, strSec.offset + strSec.size);
+    const readName = (off: number): string => {
+      const at = strStart + off;
+      if (off < 0 || at < strStart || at >= strEnd) return "";
+      let end = at;
+      const limit = Math.min(strEnd, at + 256);
+      while (end < limit && data[end] !== 0) end++;
+      return new TextDecoder().decode(data.subarray(at, end));
+    };
+    const count = Math.min(Math.floor(sec.size / entSize), 20000);
+    for (let i = 0; i < count; i++) {
+      const base = sec.offset + i * entSize;
+      if (base + entSize > data.length) break;
+      try {
+        let nameOff: number;
+        let value: number;
+        let size: number;
+        let info: number;
+        let shndx: number;
+        if (is64) {
+          nameOff = dv.getUint32(base, le);
+          info = data[base + 4];
+          shndx = dv.getUint16(base + 6, le);
+          value = readU64(dv, base + 8, le);
+          size = readU64(dv, base + 16, le);
+        } else {
+          nameOff = dv.getUint32(base, le);
+          value = dv.getUint32(base + 4, le);
+          size = dv.getUint32(base + 8, le);
+          info = data[base + 12];
+          shndx = dv.getUint16(base + 14, le);
+        }
+        const name = readName(nameOff);
+        if (!name) continue;
+        out.push({
+          name,
+          value,
+          size,
+          bind: SYM_BINDS[info >> 4] ?? `0x${(info >> 4).toString(16)}`,
+          type: SYM_TYPES[info & 0xf] ?? `0x${(info & 0xf).toString(16)}`,
+          shndx,
+          kind,
+        });
+      } catch {
+        break;
+      }
+    }
+    if (out.length >= 20000) break;
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Function candidates (prologue heuristics over executable sections)  */
+/* ------------------------------------------------------------------ */
+
+const PROLOGUES: { bytes: number[]; label: string; arch: string }[] = [
+  { bytes: [0xf3, 0x0f, 0x1e, 0xfa], label: "endbr64", arch: "x86-64" },
+  { bytes: [0xf3, 0x0f, 0x1e, 0xfb], label: "endbr32", arch: "x86" },
+  { bytes: [0x55, 0x48, 0x89, 0xe5], label: "push rbp; mov rbp, rsp", arch: "x86-64" },
+  { bytes: [0x55, 0x8b, 0xec], label: "push ebp; mov ebp, esp", arch: "x86" },
+  { bytes: [0x55, 0x89, 0xe5], label: "push ebp; mov ebp, esp", arch: "x86" },
+  { bytes: [0x48, 0x83, 0xec], label: "sub rsp, imm8", arch: "x86-64" },
+  { bytes: [0xfd, 0x7b, 0xbf, 0xa9], label: "stp x29, x30, [sp, #-16]!", arch: "aarch64" },
+  { bytes: [0xfd, 0x7b, 0xbd, 0xa9], label: "stp x29, x30, [sp, #-48]!", arch: "aarch64" },
+];
+
+export function findFunctionCandidates(
+  data: Uint8Array,
+  elf: ElfInfo,
+  pe: PeInfo,
+  limit = 4000,
+): FunctionCandidate[] {
+  const byFirst = new Map<number, typeof PROLOGUES>();
+  for (const p of PROLOGUES) {
+    const list = byFirst.get(p.bytes[0]) ?? [];
+    list.push(p);
+    byFirst.set(p.bytes[0], list);
+  }
+
+  const ranges: { offset: number; size: number }[] = [];
+  if (elf.valid) {
+    for (const s of elf.sections) {
+      if (s.size > 0 && s.type !== "NOBITS" && s.flags.includes("X")) {
+        ranges.push({ offset: s.offset, size: s.size });
+      }
+    }
+  } else if (pe.valid) {
+    for (const s of pe.sections) {
+      if (s.rawSize > 0 && (s.characteristics & 0x20000000 || s.characteristics & 0x20)) {
+        ranges.push({ offset: s.rawOffset, size: s.rawSize });
+      }
+    }
+  }
+
+  const out: FunctionCandidate[] = [];
+  for (const r of ranges) {
+    const start = Math.max(0, r.offset);
+    const end = Math.min(data.length, r.offset + r.size);
+    for (let i = start; i + 4 <= end; i++) {
+      const cands = byFirst.get(data[i]);
+      if (!cands) continue;
+      for (const p of cands) {
+        let match = true;
+        for (let k = 1; k < p.bytes.length; k++) {
+          if (data[i + k] !== p.bytes[k]) {
+            match = false;
+            break;
+          }
+        }
+        if (match) {
+          out.push({ offset: i, pattern: p.label, arch: p.arch, entry: false });
+          if (out.length >= limit) return out;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Address → file offset                                               */
+/* ------------------------------------------------------------------ */
+
+/** Map an ELF virtual address to a file offset using LOAD segments, then sections. */
+export function elfVaddrToOffset(elf: ElfInfo, vaddr: number): number | null {
+  for (const p of elf.programs) {
+    if (p.type !== "LOAD") continue;
+    if (vaddr >= p.vaddr && vaddr < p.vaddr + p.filesz) return p.offset + (vaddr - p.vaddr);
+  }
+  for (const s of elf.sections) {
+    if (s.type === "NOBITS" || s.size <= 0) continue;
+    if (vaddr >= s.addr && vaddr < s.addr + s.size) return s.offset + (vaddr - s.addr);
+  }
+  return null;
+}
+
+/** Resolve any address (ELF vaddr or PE vaddr) to a file offset within the analyzed view. */
+export function vaddrToOffset(result: AnalysisResult, vaddr: number): number | null {
+  if (result.elf.valid) return elfVaddrToOffset(result.elf, vaddr);
+  if (result.pe.valid) return rvaToOffset(result.pe, result.view, vaddr - result.pe.imageBase);
+  return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -594,6 +942,25 @@ export async function analyzeFile(file: File): Promise<AnalysisResult> {
 
   const { format, magic } = detectFormat(data);
   const strings = extractStrings(data, STRINGS_MIN_DEFAULT);
+  const elf = parseElf(data);
+  const pe = parsePe(data);
+  const symbols = parseElfSymbols(data, elf);
+  const imports = parsePeImports(data, pe);
+  const exports = parsePeExports(data, pe);
+  const functions = findFunctionCandidates(data, elf, pe);
+
+  let entryOffset: number | null = null;
+  if (elf.valid && elf.entry > 0) entryOffset = elfVaddrToOffset(elf, elf.entry);
+  else if (pe.valid && pe.entryPoint > 0) entryOffset = rvaToOffset(pe, data, pe.entryPoint);
+  if (entryOffset !== null && entryOffset < data.length) {
+    functions.unshift({
+      offset: entryOffset,
+      pattern: "image entry point",
+      arch: elf.valid ? elf.machine : pe.machine,
+      entry: true,
+    });
+  }
+
   const result: AnalysisResult = {
     name: file.name,
     size: file.size,
@@ -606,10 +973,14 @@ export async function analyzeFile(file: File): Promise<AnalysisResult> {
     chunkEntropy: chunkEntropy(data),
     magic,
     format,
-    elf: parseElf(data),
-    pe: parsePe(data),
+    elf,
+    pe,
     strings,
     indicators: collectIndicators(strings),
+    symbols,
+    imports,
+    exports,
+    functions,
     scanMs: Math.round(performance.now() - t0),
   };
   return result;

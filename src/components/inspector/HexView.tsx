@@ -9,12 +9,18 @@ import {
 } from "@/lib/binary-analysis";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const ROW_HEIGHT = 21;
 const PAGE_BYTES = HEX_ROW_BYTES * 24;
 
-export function HexView({ data }: { data: Uint8Array }) {
+export interface HexJump {
+  offset: number;
+  /** Bumped on each new jump so repeat targets still re-scroll. */
+  token: number;
+}
+
+export function HexView({ data, jump }: { data: Uint8Array; jump?: HexJump }) {
   const { ref, onScroll, range, padTop, padBottom } = useVirtualWindow(
     Math.ceil(data.length / HEX_ROW_BYTES),
     ROW_HEIGHT,
@@ -33,6 +39,13 @@ export function HexView({ data }: { data: Uint8Array }) {
       containerRef.current.scrollTop = Math.max(0, row * ROW_HEIGHT - 100);
     }
   };
+
+  useEffect(() => {
+    if (!jump) return;
+    scrollToOffset(jump.offset);
+    // Only re-run when a new jump token arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump?.token]);
 
   const handleGoto = () => {
     const m = goto.trim().replace(/^0x/i, "");
@@ -99,8 +112,19 @@ export function HexView({ data }: { data: Uint8Array }) {
         className="scrollbar-gold h-[460px] overflow-auto font-mono-tight text-[12.5px] leading-[21px]"
       >
         <div style={{ paddingTop: padTop, paddingBottom: padBottom }}>
-          {rows.map((row) => (
-            <div key={row.offset} className="flex items-center gap-3 px-3 hover:bg-gold/5">
+          {rows.map((row) => {
+            const highlighted =
+              jump != null &&
+              jump.offset >= row.offset &&
+              jump.offset < row.offset + HEX_ROW_BYTES;
+            return (
+            <div
+              key={row.offset}
+              className={cn(
+                "flex items-center gap-3 px-3 hover:bg-gold/5",
+                highlighted && "bg-gold/10 ring-1 ring-inset ring-gold/30",
+              )}
+            >
               <button
                 type="button"
                 onClick={() => copyRow(row.offset)}
@@ -126,7 +150,8 @@ export function HexView({ data }: { data: Uint8Array }) {
                 {row.ascii}
               </div>
             </div>
-          ))}
+            );
+          })}
           {rows.length === 0 && (
             <div className="p-6 text-sm text-muted-foreground">Empty file.</div>
           )}

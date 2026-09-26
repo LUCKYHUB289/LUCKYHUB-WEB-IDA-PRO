@@ -4,11 +4,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BrandFooter, BrandHeader } from "@/components/BrandChrome";
 import { FileDropzone } from "@/components/inspector/FileDropzone";
-import { HexView } from "@/components/inspector/HexView";
+import { HeaderExportDialog } from "@/components/inspector/HeaderExportDialog";
+import { HexView, type HexJump } from "@/components/inspector/HexView";
 import { IndicatorsTab } from "@/components/inspector/IndicatorsTab";
 import { OverviewTab } from "@/components/inspector/OverviewTab";
 import { SectionsTab } from "@/components/inspector/SectionsTab";
 import { StringsTab } from "@/components/inspector/StringsTab";
+import { SymbolsTab } from "@/components/inspector/SymbolsTab";
 import { useAuth } from "@/hooks/use-auth";
 import {
   analyzeFile,
@@ -20,6 +22,8 @@ import {
 } from "@/lib/binary-analysis";
 import {
   Activity,
+  Braces,
+  FileCode2,
   FileSearch,
   Layers,
   LogOut,
@@ -31,23 +35,28 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
-const MAX_FILE_BYTES = 64 * 1024 * 1024;
+const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB file selection limit
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [data, setData] = useState<Uint8Array | null>(null);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState("overview");
+  const [hexJump, setHexJump] = useState<HexJump | undefined>(undefined);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const handleFile = async (file: File) => {
     setError(null);
     if (file.size > MAX_FILE_BYTES) {
-      toast.error(`File too large (${formatBytes(file.size)}). Limit is 64 MB.`);
+      toast.error(`File too large (${formatBytes(file.size)}). Limit is 2 GB.`);
       return;
     }
+    setFile(file);
     setBusy(true);
     setStage("Reading file…");
     await new Promise((r) => setTimeout(r, 30)); // let the UI paint
@@ -139,10 +148,20 @@ export default function Dashboard() {
     toast.success("Report exported");
   };
 
+  const jumpToOffset = (offset: number) => {
+    if (offset < 0 || offset >= (data?.length ?? 0)) {
+      toast.message("Offset is outside the analyzed window");
+      return;
+    }
+    setHexJump({ offset, token: Date.now() });
+    setTab("hex");
+  };
+
   const tabsMeta = [
     { value: "overview", label: "Overview", icon: Activity },
     { value: "hex", label: "Hex", icon: FileSearch },
     { value: "strings", label: "Strings", icon: ScanText },
+    { value: "symbols", label: "Symbols", icon: Braces },
     { value: "indicators", label: "Indicators", icon: Sigma },
     { value: "sections", label: "Sections", icon: Layers },
   ];
@@ -170,25 +189,34 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {result && (
-                <Button variant="outline" size="sm" onClick={exportReport}>
-                  <FileSearch className="size-4" />
-                  Export report
-                </Button>
-              )}
-              {result && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setResult(null);
-                    setData(null);
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                  Clear
-                </Button>
-              )}
+          {file && (
+            <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+              <FileCode2 className="size-4" />
+              Extract .h
+            </Button>
+          )}
+          {result && (
+            <Button variant="outline" size="sm" onClick={exportReport}>
+              <FileSearch className="size-4" />
+              Export report
+            </Button>
+          )}
+          {result && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setResult(null);
+                setData(null);
+                setFile(null);
+                setHexJump(undefined);
+                setTab("overview");
+              }}
+            >
+              <Trash2 className="size-4" />
+              Clear
+            </Button>
+          )}
               <Button variant="ghost" size="sm" onClick={handleSignOut}>
                 <LogOut className="size-4" />
                 Sign out
@@ -249,7 +277,7 @@ export default function Dashboard() {
           )}
 
           {result && data && (
-            <Tabs defaultValue="overview" className="gap-4">
+            <Tabs value={tab} onValueChange={setTab} className="gap-4">
               <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-card/60 p-1">
                 {tabsMeta.map(({ value, label, icon: Icon }) => (
                   <TabsTrigger
@@ -267,10 +295,13 @@ export default function Dashboard() {
                 <OverviewTab result={result} />
               </TabsContent>
               <TabsContent value="hex">
-                <HexView data={data} />
+                <HexView data={data} jump={hexJump} />
               </TabsContent>
               <TabsContent value="strings">
                 <StringsTab result={result} />
+              </TabsContent>
+              <TabsContent value="symbols">
+                <SymbolsTab result={result} onJump={jumpToOffset} />
               </TabsContent>
               <TabsContent value="indicators">
                 <IndicatorsTab result={result} />
@@ -290,6 +321,8 @@ export default function Dashboard() {
       </main>
 
       <BrandFooter />
+
+      <HeaderExportDialog open={exportOpen} onOpenChange={setExportOpen} file={file} />
     </div>
   );
 }
