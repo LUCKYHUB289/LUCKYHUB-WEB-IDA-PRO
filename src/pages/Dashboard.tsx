@@ -4,7 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BrandFooter, BrandHeader } from "@/components/BrandChrome";
 import { FileDropzone } from "@/components/inspector/FileDropzone";
-import { HeaderExportDialog } from "@/components/inspector/HeaderExportDialog";
+import { CSourceDialog } from "@/components/inspector/CSourceDialog";
+import { ImageHeaderDialog } from "@/components/inspector/ImageHeaderDialog";
 import { HexView, type HexJump } from "@/components/inspector/HexView";
 import { IndicatorsTab } from "@/components/inspector/IndicatorsTab";
 import { OverviewTab } from "@/components/inspector/OverviewTab";
@@ -12,19 +13,13 @@ import { SectionsTab } from "@/components/inspector/SectionsTab";
 import { StringsTab } from "@/components/inspector/StringsTab";
 import { SymbolsTab } from "@/components/inspector/SymbolsTab";
 import { useAuth } from "@/hooks/use-auth";
-import {
-  analyzeFile,
-  downloadText,
-  entropyVerdict,
-  formatBytes,
-  hexOffset,
-  type AnalysisResult,
-} from "@/lib/binary-analysis";
+import { analyzeFile, formatBytes, type AnalysisResult } from "@/lib/binary-analysis";
 import {
   Activity,
   Braces,
   FileCode2,
   FileSearch,
+  ImageIcon,
   Layers,
   LogOut,
   ScanText,
@@ -38,7 +33,7 @@ import { toast } from "sonner";
 const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB file selection limit
 
 export default function Dashboard() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -48,7 +43,8 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("overview");
   const [hexJump, setHexJump] = useState<HexJump | undefined>(undefined);
-  const [exportOpen, setExportOpen] = useState(false);
+  const [csourceOpen, setCsourceOpen] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
 
   const handleFile = async (file: File) => {
     setError(null);
@@ -81,71 +77,6 @@ export default function Dashboard() {
   const handleSignOut = async () => {
     await signOut();
     navigate("/");
-  };
-
-  const exportReport = () => {
-    if (!result) return;
-    const lines: string[] = [];
-    lines.push("LUCKY HUB — BINARY INSPECTOR REPORT");
-    lines.push("=".repeat(46));
-    lines.push(`Generated : ${new Date().toISOString()}`);
-    lines.push(`File      : ${result.name}`);
-    lines.push(
-      `Size      : ${formatBytes(result.size)}${result.truncated ? " (analysis window truncated to 64 MB)" : ""}`,
-    );
-    lines.push(`Format    : ${result.format} (${result.magic})`);
-    lines.push(
-      `Entropy   : ${result.entropy.toFixed(3)} bits/byte — ${entropyVerdict(result.entropy).label}`,
-    );
-    lines.push("");
-    lines.push("--- INTEGRITY ---");
-    lines.push(`SHA-256   : ${result.sha256}`);
-    lines.push(`CRC32     : ${result.crc32}`);
-    lines.push("");
-    if (result.elf.valid) {
-      lines.push("--- ELF HEADER ---");
-      lines.push(`Class     : ${result.elf.bitness}-bit, ${result.elf.endian}-endian`);
-      lines.push(`Type      : ${result.elf.type}`);
-      lines.push(`Machine   : ${result.elf.machine}`);
-      lines.push(`Entry     : ${hexOffset(result.elf.entry)}`);
-      lines.push(`Sections  : ${result.elf.sections.length}`);
-      lines.push("");
-    }
-    if (result.pe.valid) {
-      lines.push("--- PE HEADER ---");
-      lines.push(`Machine   : ${result.pe.machine}`);
-      lines.push(`Subsystem : ${result.pe.subsystem}`);
-      lines.push(`Sections  : ${result.pe.sections.length}`);
-      lines.push("");
-    }
-    lines.push("--- INDICATORS ---");
-    if (result.indicators.length === 0) {
-      lines.push("(none)");
-    } else {
-      const byCat = new Map<string, typeof result.indicators>();
-      for (const h of result.indicators) {
-        const list = byCat.get(h.category) ?? [];
-        list.push(h);
-        byCat.set(h.category, list);
-      }
-      for (const [cat, hits] of byCat) {
-        lines.push(`== ${cat.toUpperCase()} ==`);
-        for (const h of hits.slice(0, 150)) {
-          lines.push(`${hexOffset(h.offset)}  ${h.value.slice(0, 200)}`);
-        }
-        lines.push("");
-      }
-    }
-    lines.push("--- STRINGS (first 500, min length 5) ---");
-    for (const s of result.strings.slice(0, 500)) {
-      lines.push(`${hexOffset(s.offset, 6)}  ${s.text.slice(0, 200)}`);
-    }
-    lines.push("");
-    lines.push(
-      "Inspected locally with LUCKY HUB Binary Inspector — read-only, nothing uploaded.",
-    );
-    downloadText(`${result.name}.luckyhub-report.txt`, lines.join("\n"));
-    toast.success("Report exported");
   };
 
   const jumpToOffset = (offset: number) => {
@@ -189,38 +120,38 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-          {file && (
-            <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
-              <FileCode2 className="size-4" />
-              Extract .h
-            </Button>
-          )}
-          {result && (
-            <Button variant="outline" size="sm" onClick={exportReport}>
-              <FileSearch className="size-4" />
-              Export report
-            </Button>
-          )}
-          {result && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setResult(null);
-                setData(null);
-                setFile(null);
-                setHexJump(undefined);
-                setTab("overview");
-              }}
-            >
-              <Trash2 className="size-4" />
-              Clear
-            </Button>
-          )}
-              <Button variant="ghost" size="sm" onClick={handleSignOut}>
-                <LogOut className="size-4" />
-                Sign out
+              <Button variant="outline" size="sm" onClick={() => setImageOpen(true)}>
+                <ImageIcon className="size-4" />
+                Image → .h
               </Button>
+              {file && result && (
+                <Button variant="outline" size="sm" onClick={() => setCsourceOpen(true)}>
+                  <FileCode2 className="size-4" />
+                  Download .c File
+                </Button>
+              )}
+              {result && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setResult(null);
+                    setData(null);
+                    setFile(null);
+                    setHexJump(undefined);
+                    setTab("overview");
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  Clear
+                </Button>
+              )}
+              {isAuthenticated && (
+                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                  <LogOut className="size-4" />
+                  Sign out
+                </Button>
+              )}
             </div>
           </div>
 
@@ -322,7 +253,13 @@ export default function Dashboard() {
 
       <BrandFooter />
 
-      <HeaderExportDialog open={exportOpen} onOpenChange={setExportOpen} file={file} />
+      <CSourceDialog
+        open={csourceOpen}
+        onOpenChange={setCsourceOpen}
+        file={file}
+        result={result}
+      />
+      <ImageHeaderDialog open={imageOpen} onOpenChange={setImageOpen} />
     </div>
   );
 }

@@ -8,15 +8,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { useAuth } from "@/hooks/use-auth";
 import logo from "@/assets/logo.svg";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
   Binary,
+  Braces,
+  FileCode2,
   Fingerprint,
   Gauge,
   Hexagon,
+  ImageIcon,
   Layers,
   ScanText,
   ShieldCheck,
@@ -28,7 +30,7 @@ const FEATURES = [
   {
     icon: Binary,
     title: "Hex viewer",
-    body: "Virtualized hex + ASCII dump with go-to-offset, paging and one-click row copy. Smooth on files up to 64 MB.",
+    body: "Virtualized hex + ASCII dump with go-to-offset, paging and one-click row copy. Load files up to 2 GB.",
   },
   {
     icon: Layers,
@@ -55,6 +57,21 @@ const FEATURES = [
     title: "Integrity",
     body: "SHA-256, whole-file CRC32 and a custom-range CRC32 calculator, all computed locally.",
   },
+  {
+    icon: Braces,
+    title: "Symbols & functions",
+    body: "IDA-style browser: ELF .symtab/.dynsym, PE imports and exports, plus function-prologue candidates with jump-to-offset.",
+  },
+  {
+    icon: FileCode2,
+    title: "Convert to .c",
+    body: "Turn a .so or any binary into a C source file — the full byte image plus sections, symbols and a readable report.",
+  },
+  {
+    icon: ImageIcon,
+    title: "Image → header",
+    body: "Convert a logo or image into a C header with width/height defines in RGBA8888, RGB888, ARGB8888 or RGB565.",
+  },
 ];
 
 const STEPS = [
@@ -71,7 +88,7 @@ const STEPS = [
   {
     n: "03",
     title: "Export what matters",
-    body: "Download a plain-text report, a strings CSV or an indicator list — formatted with offsets so you can cite them.",
+    body: "Export the whole thing as a .c file — byte image plus every parsed library detail — or grab strings, symbols and indicators as CSV.",
   },
 ];
 
@@ -90,11 +107,11 @@ const FAQ = [
   },
   {
     q: "Is there a size limit?",
-    a: "Files up to 64 MB are fully analyzed. Larger files are analyzed over their first 64 MB, and the report tells you when that happened.",
+    a: "You can load files up to 2 GB. The first 64 MB is analyzed in-browser for headers, strings and symbols, while the .c export streams the entire file with no download size limit.",
   },
   {
-    q: "Why do I need to sign in?",
-    a: "A free account just remembers your workspace and keeps the tool free to grow. Guest sign-in works too if you don't want to use an email.",
+    q: "Do I need an account?",
+    a: "No. The inspector opens straight up — no login, no sign-up and no tracking. You only sign in if you want to; every tool works without one.",
   },
   {
     q: "Who built this?",
@@ -103,8 +120,7 @@ const FAQ = [
 ];
 
 export default function Landing() {
-  const { isAuthenticated } = useAuth();
-  const primaryHref = isAuthenticated ? "/dashboard" : "/auth?returnTo=%2Fdashboard";
+  const primaryHref = "/dashboard";
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -317,7 +333,7 @@ $ luckyhub inspect libtarget.so
                 </a>
               </Button>
               <Button asChild variant="outline" size="lg">
-                <Link to="/auth?returnTo=%2Fdashboard">Create a free account</Link>
+                <Link to="/dashboard">Open the inspector</Link>
               </Button>
             </div>
             <p className="mt-6 font-mono-tight text-xs text-muted-foreground">

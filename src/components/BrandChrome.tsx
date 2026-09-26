@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/hooks/use-auth";
 import logo from "@/assets/logo.svg";
 import { Hexagon, ShieldCheck, Send, List, X, Sparkles } from "lucide-react";
 import { useState } from "react";
@@ -26,7 +25,6 @@ export function TelegramButton({
 }
 
 export function BrandHeader() {
-  const { isAuthenticated, isLoading } = useAuth();
   const [open, setOpen] = useState(false);
 
   const links = (
@@ -71,22 +69,12 @@ export function BrandHeader() {
 
         <div className="hidden items-center gap-2 md:flex">
           <TelegramButton variant="ghost" size="sm" />
-          {!isLoading &&
-            (isAuthenticated ? (
-              <Button asChild size="sm">
-                <Link to="/dashboard">
-                  <Hexagon className="size-4" />
-                  Open Inspector
-                </Link>
-              </Button>
-            ) : (
-              <Button asChild size="sm">
-                <Link to="/auth?returnTo=%2Fdashboard">
-                  <ShieldCheck className="size-4" />
-                  Launch App
-                </Link>
-              </Button>
-            ))}
+          <Button asChild size="sm">
+            <Link to="/dashboard">
+              <Hexagon className="size-4" />
+              Open Inspector
+            </Link>
+          </Button>
         </div>
 
         <button
@@ -104,18 +92,11 @@ export function BrandHeader() {
           <div className="flex flex-col gap-3">
             {links}
             <TelegramButton variant="outline" size="sm" className="w-full" />
-            {!isLoading &&
-              (isAuthenticated ? (
-                <Button asChild size="sm" className="w-full">
-                  <Link to="/dashboard">
-                    <Sparkles className="size-4" /> Open Inspector
-                  </Link>
-                </Button>
-              ) : (
-                <Button asChild size="sm" className="w-full">
-                  <Link to="/auth?returnTo=%2Fdashboard">Launch App</Link>
-                </Button>
-              ))}
+            <Button asChild size="sm" className="w-full">
+              <Link to="/dashboard">
+                <Sparkles className="size-4" /> Open Inspector
+              </Link>
+            </Button>
           </div>
         </div>
       )}

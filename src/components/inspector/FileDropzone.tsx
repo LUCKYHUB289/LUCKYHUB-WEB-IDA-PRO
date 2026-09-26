@@ -71,7 +71,7 @@ export function FileDropzone({
               <code className="font-mono-tight text-gold">.so</code> ·{" "}
               <code className="font-mono-tight text-gold">.dll</code> ·{" "}
               <code className="font-mono-tight text-gold">.bin</code> ·{" "}
-              <code className="font-mono-tight text-gold">.exe</code> · any file, up to 64 MB
+              <code className="font-mono-tight text-gold">.exe</code> · any file, up to 2 GB
             </p>
           </div>
           <Button onClick={() => inputRef.current?.click()}>Choose file</Button>
