@@ -44,6 +44,7 @@ export function ImageHeaderDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const urlRef = useRef<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [image, setImage] = useState<LoadedImage | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -56,45 +57,53 @@ export function ImageHeaderDialog({
   const [bytesPerLine, setBytesPerLine] = useState(16);
   const [hexPrefix, setHexPrefix] = useState(true);
 
+  // Revoke the active object URL exactly once, outside of any state updater so
+  // React StrictMode's double-invocation cannot leak or free a live URL.
+  const clearUrl = useCallback(() => {
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) {
+      clearUrl();
       setFile(null);
       setImage(null);
       setImageUrl(null);
       setBusy(false);
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, clearUrl]);
 
-  useEffect(() => {
-    return () => {
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
-    };
-  }, [imageUrl]);
+  useEffect(() => clearUrl, [clearUrl]);
 
-  const acceptFile = useCallback(async (next: File) => {
-    setFile(next);
-    setIdentifier(imageIdentifier(next.name));
-    setImage(null);
-    setLoading(true);
-    try {
-      const decoded = await loadImagePixels(next);
-      setImage(decoded);
-      setImageUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return URL.createObjectURL(next);
-      });
-    } catch (error) {
-      console.error(error);
-      setImageUrl(null);
-      toast.error("Could not decode that image", {
-        description: "Try a PNG, JPEG, WebP, GIF or BMP file.",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const acceptFile = useCallback(
+    async (next: File) => {
+      setFile(next);
+      setIdentifier(imageIdentifier(next.name));
+      setImage(null);
+      setLoading(true);
+      try {
+        const decoded = await loadImagePixels(next);
+        setImage(decoded);
+        clearUrl();
+        const url = URL.createObjectURL(next);
+        urlRef.current = url;
+        setImageUrl(url);
+      } catch (error) {
+        console.error(error);
+        clearUrl();
+        setImageUrl(null);
+        toast.error("Could not decode that image", {
+          description: "Try a PNG, JPEG, WebP, GIF or BMP file.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [clearUrl],
+  );
 
   const opts: Partial<ImageHeaderOptions> = { identifier, format, bytesPerLine, hexPrefix };
 
