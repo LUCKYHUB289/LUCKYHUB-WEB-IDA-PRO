@@ -1,21 +1,55 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 96.81 96.81">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="lh-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#17140d"/>
-      <stop offset="1" stop-color="#090a08"/>
+    <radialGradient id="lh-bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0" stop-color="#191033"/>
+      <stop offset="0.55" stop-color="#0c0a1d"/>
+      <stop offset="1" stop-color="#05040c"/>
+    </radialGradient>
+    <linearGradient id="lh-ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c084fc"/>
+      <stop offset="0.5" stop-color="#a855f7"/>
+      <stop offset="1" stop-color="#3b82f6"/>
     </linearGradient>
-    <linearGradient id="lh-fg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f6e7a1"/>
-      <stop offset="0.45" stop-color="#eab308"/>
-      <stop offset="1" stop-color="#b45309"/>
+    <linearGradient id="lh-word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d8b4fe"/>
+      <stop offset="0.45" stop-color="#a855f7"/>
+      <stop offset="1" stop-color="#38bdf8"/>
     </linearGradient>
+    <filter id="lh-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="lh-glow-soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
   </defs>
-  <rect width="96.81" height="96.81" rx="18" fill="url(#lh-bg)"/>
-  <rect x="0.75" y="0.75" width="95.31" height="95.31" rx="17.25" fill="none" stroke="#eab308" stroke-opacity="0.35" stroke-width="1.5"/>
-  <g fill="url(#lh-fg)">
-    <rect x="24.67" y="24.67" width="47.47" height="11.87" rx="2"/>
-    <rect x="24.67" y="36.54" width="11.87" height="35.61" rx="2"/>
-    <rect x="40.06" y="39.98" width="23.74" height="11.87" rx="2"/>
-    <rect x="40.06" y="51.85" width="11.87" height="20.3" rx="2"/>
+
+  <rect width="512" height="512" rx="112" fill="url(#lh-bg)"/>
+
+  <text x="80" y="232" font-family="Arial, Helvetica, sans-serif" font-size="150" font-weight="900" fill="#7c3aed" opacity="0.16">L</text>
+  <text x="352" y="232" font-family="Arial, Helvetica, sans-serif" font-size="150" font-weight="900" fill="#3b82f6" opacity="0.16">H</text>
+
+  <circle cx="256" cy="216" r="178" fill="none" stroke="url(#lh-ring)" stroke-width="10" filter="url(#lh-glow)" opacity="0.9"/>
+  <circle cx="256" cy="216" r="192" fill="none" stroke="#a855f7" stroke-width="2" opacity="0.35" filter="url(#lh-glow-soft)"/>
+
+  <text x="256" y="250" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="94" font-weight="900" font-style="italic" fill="url(#lh-word)" stroke="#0b0716" stroke-width="3" paint-order="stroke" filter="url(#lh-glow)" letter-spacing="2">LUCKY</text>
+
+  <line x1="92" y1="292" x2="172" y2="292" stroke="url(#lh-ring)" stroke-width="5" stroke-linecap="round" filter="url(#lh-glow)"/>
+  <line x1="340" y1="292" x2="420" y2="292" stroke="url(#lh-ring)" stroke-width="5" stroke-linecap="round" filter="url(#lh-glow)"/>
+  <text x="263" y="312" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="800" fill="url(#lh-word)" filter="url(#lh-glow)" letter-spacing="14">HUB</text>
+
+  <text x="256" y="350" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#e9d5ff" opacity="0.9" letter-spacing="6">OWNER</text>
+  <rect x="70" y="362" width="372" height="44" rx="8" fill="#160f2e" stroke="#7c3aed" stroke-opacity="0.6"/>
+  <text x="256" y="392" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="800" fill="#e9d5ff" letter-spacing="1">LUCKY HATHUNGO WALA</text>
+
+  <g transform="translate(256 452)" fill="#a855f7" filter="url(#lh-glow)">
+    <path d="M -34 12 L -40 -14 L -18 0 L 0 -20 L 18 0 L 40 -14 L 34 12 Z"/>
+    <circle cx="-40" cy="-17" r="5"/>
+    <circle cx="0" cy="-24" r="5"/>
+    <circle cx="40" cy="-17" r="5"/>
+    <rect x="-34" y="14" width="68" height="7" rx="3"/>
   </g>
 </svg>
